@@ -84,17 +84,33 @@ def get_total_pages(pdf_path):
 # UI Components
 # --------------------------
 def show_pdf_preview(uploaded_file):
-    # Convert the first page of the PDF to an image
+    """Show scrollable multi-page preview with page navigation"""
     try:
         pdf_bytes = uploaded_file.read()
-        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=1)
-        if images:
-            img_bytes = BytesIO()
-            images[0].save(img_bytes, format='PNG')
-            img_bytes.seek(0)
-            st.image(img_bytes, caption='First Page Preview', use_column_width=True)
-        else:
-            st.error("Could not generate preview")
+        
+        with st.spinner("Generating PDF preview..."):
+            # Convert all pages to images
+            images = convert_from_bytes(pdf_bytes, thread_count=4)
+            
+            if not images:
+                st.error("Could not generate preview")
+                return
+
+            # Create tabs for page navigation
+            tabs = st.tabs([f"Page {i+1}" for i in range(len(images))])
+            
+            for i, tab in enumerate(tabs):
+                with tab:
+                    img_bytes = BytesIO()
+                    images[i].save(img_bytes, format='JPEG', quality=80)
+                    img_bytes.seek(0)
+                    st.image(
+                        img_bytes,
+                        caption=f'Page {i+1}',
+                        use_container_width=True,  # Fixes deprecation warning
+                        output_format="JPEG"
+                    )
+                    
     except Exception as e:
         st.error(f"Preview generation failed: {str(e)}")
     finally:
