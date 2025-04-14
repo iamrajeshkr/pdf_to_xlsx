@@ -10,7 +10,18 @@ import pandas as pd
 from PyPDF2 import PdfReader
 from contextlib import contextmanager
 from io import BytesIO
-
+import streamlit as st
+import subprocess
+import os
+import base64
+import camelot as cam
+import platform
+import tempfile
+import pandas as pd
+from PyPDF2 import PdfReader
+from contextlib import contextmanager
+from io import BytesIO
+from pdf2image import convert_from_bytes
 # --------------------------
 # Core Configuration & Setup
 # --------------------------
@@ -73,19 +84,21 @@ def get_total_pages(pdf_path):
 # UI Components
 # --------------------------
 def show_pdf_preview(uploaded_file):
-    """Display PDF preview in iframe"""
-    base64_pdf = base64.b64encode(uploaded_file.read()).decode('utf-8')
-    preview_html = f'''
-    <div style="border:1px solid #e6e9ef; border-radius:5px; padding:10px;">
-        <iframe src="data:application/pdf;base64,{base64_pdf}" 
-                width="100%" 
-                height="500" 
-                style="border:none;">
-        </iframe>
-    </div>
-    '''
-    st.markdown(preview_html, unsafe_allow_html=True)
-    uploaded_file.seek(0)
+    # Convert the first page of the PDF to an image
+    try:
+        pdf_bytes = uploaded_file.read()
+        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=1)
+        if images:
+            img_bytes = BytesIO()
+            images[0].save(img_bytes, format='PNG')
+            img_bytes.seek(0)
+            st.image(img_bytes, caption='First Page Preview', use_column_width=True)
+        else:
+            st.error("Could not generate preview")
+    except Exception as e:
+        st.error(f"Preview generation failed: {str(e)}")
+    finally:
+        uploaded_file.seek(0)
 
 # --------------------------
 # Main Application
