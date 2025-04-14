@@ -87,7 +87,7 @@ def show_pdf_preview(uploaded_file):
     # Convert the first page of the PDF to an image
     try:
         pdf_bytes = uploaded_file.read()
-        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=1)
+        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=total_pages)
         if images:
             img_bytes = BytesIO()
             images[0].save(img_bytes, format='PNG')
