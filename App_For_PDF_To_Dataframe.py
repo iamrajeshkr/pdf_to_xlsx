@@ -84,7 +84,7 @@ def get_total_pages(pdf_path):
 # UI Components
 # --------------------------
 def show_pdf_preview(uploaded_file):
-    """Show scrollable multi-page preview with page navigation"""
+    """Show vertical scrollable preview of all pages"""
     try:
         pdf_bytes = uploaded_file.read()
         
@@ -96,21 +96,35 @@ def show_pdf_preview(uploaded_file):
                 st.error("Could not generate preview")
                 return
 
-            # Create tabs for page navigation
-            tabs = st.tabs([f"Page {i+1}" for i in range(len(images))])
-            
-            for i, tab in enumerate(tabs):
-                with tab:
+            # Create a container with fixed height and scroll
+            with st.container():
+                preview_html = """
+                <div style="
+                    max-height: 600px;
+                    overflow-y: auto;
+                    border: 1px solid #e6e9ef;
+                    border-radius: 5px;
+                    padding: 10px;
+                ">
+                """
+                st.markdown(preview_html, unsafe_allow_html=True)
+                
+                # Display images with spacing
+                for i, image in enumerate(images):
                     img_bytes = BytesIO()
-                    images[i].save(img_bytes, format='JPEG', quality=80)
+                    image.save(img_bytes, format='JPEG', quality=85)
                     img_bytes.seek(0)
+                    
                     st.image(
                         img_bytes,
                         caption=f'Page {i+1}',
-                        use_container_width=True,  # Fixes deprecation warning
+                        use_container_width=True,
                         output_format="JPEG"
                     )
-                    
+                    st.write("")  # Add spacing between pages
+
+                st.markdown("</div>", unsafe_allow_html=True)
+                
     except Exception as e:
         st.error(f"Preview generation failed: {str(e)}")
     finally:
