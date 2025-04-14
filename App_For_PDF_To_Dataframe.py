@@ -25,7 +25,7 @@ from pdf2image import convert_from_bytes
 # --------------------------
 # Core Configuration & Setup
 # --------------------------
-st.set_page_config(page_title="PDF Table Genius", page_icon="📋", layout="wide")
+st.set_page_config(page_title="PDF Table Extracter", page_icon="📋", layout="wide")
 
 # --------------------------
 # Ghostscript Handling
