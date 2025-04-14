@@ -84,22 +84,15 @@ def get_total_pages(pdf_path):
 # UI Components
 # --------------------------
 def show_pdf_preview(uploaded_file):
-    """Display first 3 pages of PDF as images"""
+    # Convert the first page of the PDF to an image
     try:
         pdf_bytes = uploaded_file.read()
-        # Convert first 3 pages (1-based index)
-        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=3)
-        
+        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=1)
         if images:
-            for idx, image in enumerate(images):
-                img_bytes = BytesIO()
-                image.save(img_bytes, format='PNG')
-                img_bytes.seek(0)
-                st.image(
-                    img_bytes,
-                    caption=f'Page {idx + 1}',
-                    use_container_width=True  # Fixed parameter name
-                )
+            img_bytes = BytesIO()
+            images[0].save(img_bytes, format='PNG')
+            img_bytes.seek(0)
+            st.image(img_bytes, caption='First Page Preview', use_column_width=True)
         else:
             st.error("Could not generate preview")
     except Exception as e:
