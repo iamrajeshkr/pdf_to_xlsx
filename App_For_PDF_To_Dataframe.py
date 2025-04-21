@@ -1,267 +1,223 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
 import subprocess
 import os
-import base64
-import camelot as cam
 import platform
 import tempfile
+import logging
 import pandas as pd
-from PyPDF2 import PdfReader
-from contextlib import contextmanager
-from io import BytesIO
-import streamlit as st
-import subprocess
-import os
-import base64
 import camelot as cam
-import platform
-import tempfile
-import pandas as pd
 from PyPDF2 import PdfReader
 from contextlib import contextmanager
 from io import BytesIO
 from pdf2image import convert_from_bytes
+
 # --------------------------
-# Core Configuration & Setup
+# Logging Configuration
 # --------------------------
-st.set_page_config(page_title="PDF Table Extracter", page_icon="📋", layout="wide")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+)
+logger = logging.getLogger(__name__)
+
+# --------------------------
+# Streamlit Page Config
+# --------------------------
+st.set_page_config(page_title="PDF Table Extractor", page_icon="📋", layout="wide")
 
 # --------------------------
 # Ghostscript Handling
 # --------------------------
 @st.cache_resource
 def check_ghostscript():
-    """Check Ghostscript installation without Streamlit elements"""
     if platform.system() == "Windows":
         gs_paths = ["C:\\Program Files\\gs", "C:\\Program Files (x86)\\gs"]
         return any(os.path.exists(p) for p in gs_paths)
-    else:
-        try:
-            subprocess.run(["gs", "--version"], check=True, 
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+    try:
+        subprocess.run(["gs", "--version"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
 
 def handle_ghostscript_dependencies():
-    """Main dependency handling with proper UI separation"""
     if not check_ghostscript():
         if platform.system() != "Windows":
             if st.button("Install Ghostscript automatically?"):
-                try:
-                    with st.spinner("Installing Ghostscript..."):
+                with st.spinner("Installing Ghostscript..."):
+                    try:
                         subprocess.run(["sudo", "apt-get", "install", "-y", "ghostscript"],
-                                     check=True, stdout=subprocess.DEVNULL)
-                    st.success("Ghostscript installed successfully!")
-                    st.rerun()
-                except subprocess.CalledProcessError as e:
-                    st.error(f"Installation failed: {str(e)}")
+                                       check=True, stdout=subprocess.DEVNULL)
+                        st.success("Ghostscript installed successfully. Please rerun.")
+                        st.stop()
+                    except subprocess.CalledProcessError as e:
+                        st.error(f"Installation failed: {e}")
+                        st.stop()
         else:
-            st.error("Ghostscript required! [Download here](https://www.ghostscript.com/)")
+            st.error("Ghostscript required! Please install from https://www.ghostscript.com/")
         st.stop()
 
 # --------------------------
-# File Handling Utilities
+# PDF Utilities
 # --------------------------
+@st.cache_data
+def get_total_pages(pdf_bytes: bytes) -> int:
+    reader = PdfReader(BytesIO(pdf_bytes))
+    return len(reader.pages)
+
+@st.cache_data
+def convert_page_to_image(pdf_bytes: bytes, page_num: int, dpi: int = 100):
+    images = convert_from_bytes(
+        pdf_bytes, dpi=dpi, first_page=page_num, last_page=page_num
+    )
+    return images[0] if images else None
+
 @contextmanager
 def temp_pdf_file(uploaded_file):
-    """Context manager for temporary PDF files"""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(uploaded_file.getbuffer())
+        yield tmp.name
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(uploaded_file.getbuffer())
-            yield tmp.name
-    finally:
-        if os.path.exists(tmp.name):
-            os.unlink(tmp.name)
-
-def get_total_pages(pdf_path):
-    """Get total number of pages in PDF"""
-    with open(pdf_path, "rb") as f:
-        return len(PdfReader(f).pages)
+        os.unlink(tmp.name)
+    except FileNotFoundError:
+        pass
 
 # --------------------------
-# UI Components
+# Table Cleaning
 # --------------------------
-def show_pdf_preview(uploaded_file):
-    """Show vertical scrollable preview of all pages"""
-    try:
-        pdf_bytes = uploaded_file.read()
-        
-        with st.spinner("Generating PDF preview..."):
-            # Convert all pages to images
-            images = convert_from_bytes(pdf_bytes, thread_count=4)
-            
-            if not images:
-                st.error("Could not generate preview")
-                return
-
-            # Create a container with fixed height and scroll
-            with st.container():
-                preview_html = """
-                <div style="
-                    max-height: 600px;
-                    overflow-y: auto;
-                    border: 1px solid #e6e9ef;
-                    border-radius: 5px;
-                    padding: 10px;
-                ">
-                """
-                st.markdown(preview_html, unsafe_allow_html=True)
-                
-                # Display images with spacing
-                for i, image in enumerate(images):
-                    img_bytes = BytesIO()
-                    image.save(img_bytes, format='JPEG', quality=85)
-                    img_bytes.seek(0)
-                    
-                    st.image(
-                        img_bytes,
-                        caption=f'Page {i+1}',
-                        use_container_width=True,
-                        output_format="JPEG"
-                    )
-                    st.write("")  # Add spacing between pages
-
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-    except Exception as e:
-        st.error(f"Preview generation failed: {str(e)}")
-    finally:
-        uploaded_file.seek(0)
+def clean_table(df: pd.DataFrame) -> pd.DataFrame:
+    # Trim whitespace and normalize types
+    return df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
 
 # --------------------------
-# Main Application
+# App UI
 # --------------------------
 handle_ghostscript_dependencies()
-
 st.title("📋 PDF Table Extraction")
-st.subheader("Smart Table Extraction with Multi-Page & Excel Export")
+st.subheader("Smart Table Extraction with Multi-Page Preview & Export")
 
 with st.expander("ℹ️ How to use"):
-    st.markdown("""
-    1. Upload a PDF file containing tables
-    2. Select pages to analyze (e.g. 1,3-5)
-    3. Choose table detection method
-    4. Select and export tables
-    """)
+    st.markdown(
+        """
+        1. Upload a PDF containing tables
+        2. Select pages to preview & analyze
+        3. Choose detection method
+        4. View & clean tables
+        5. Export as CSV/Excel
+        """
+    )
 
-input_pdf = st.file_uploader("Upload PDF", type=["pdf"], help="Maximum file size: 200MB")
+# Upload PDF
+input_pdf = st.file_uploader("Upload PDF", type=["pdf"], help="Max size: 200MB")
+if not input_pdf:
+    st.info("👆 Upload a PDF to get started.")
+    st.stop()
 
-if input_pdf:
-    with temp_pdf_file(input_pdf) as tmp_path:
+# Read bytes once
+pdf_bytes = input_pdf.read()
+
+# Total pages
+try:
+    total_pages = get_total_pages(pdf_bytes)
+    st.success(f"Loaded PDF with {total_pages} pages.")
+except Exception as e:
+    logger.error(f"Failed to read PDF: {e}")
+    st.error("Could not read PDF file.")
+    st.stop()
+
+# Interactive page picker
+page_options = [str(i) for i in range(1, total_pages + 1)]
+selected_pages = st.multiselect(
+    "Select pages to preview & extract", options=page_options, default=["1"],
+    help="Choose one or more pages for preview and table detection"
+)
+if not selected_pages:
+    st.warning("Please select at least one page.")
+    st.stop()
+selected_pages_int = [int(p) for p in selected_pages]
+
+# Preview selected pages
+with st.expander("🔍 PDF Preview", expanded=False):
+    progress = st.progress(0)
+    for idx, pg in enumerate(selected_pages_int):
+        img = convert_page_to_image(pdf_bytes, pg)
+        if img:
+            st.image(img, caption=f"Page {pg}", use_container_width=True)
+        else:
+            st.error(f"Could not render page {pg}.")
+        progress.progress((idx + 1) / len(selected_pages_int))
+
+# Detection method
+flavor = st.selectbox(
+    "Table detection method", ["lattice", "stream"], index=0,
+    help="Lattice: structured tables, Stream: less structured"
+)
+
+# Extract tables
+if st.button("🚀 Extract Tables"):
+    progress = st.progress(0)
+    with st.spinner("Detecting tables..."):
         try:
-            total_pages = get_total_pages(tmp_path)
-            st.success(f"📄 Loaded PDF with {total_pages} pages")
-            
-            # Page selection
-            col1, col2 = st.columns(2)
-            with col1:
-                pages = st.text_input(
-                    "Pages to analyze (e.g.: 1,3-5)", 
-                    value="1",
-                    help="Comma-separated page numbers or ranges"
-                )
-            with col2:
-                flavor = st.selectbox(
-                    "Table detection method",
-                    ["lattice (structured tables)", "stream (less structured)"],
-                    index=0
-                ).split(" ")[0]
-
-            # PDF preview
-            with st.expander("🔍 PDF Preview", expanded=True):
-                show_pdf_preview(input_pdf)
-
-            if st.button("🚀 Extract Tables"):
-                with st.spinner("🔍 Analyzing PDF structure..."):
-                    try:
-                        st.session_state.tables = cam.read_pdf(
-                            tmp_path,
-                            pages=pages,
-                            flavor=flavor,
-                            suppress_stdout=False
-                        )
-                        st.session_state.selected_table = 0
-                        st.success(f"🎉 Found {len(st.session_state.tables)} tables!")
-                    except Exception as e:
-                        st.error(f"❌ Extraction failed: {str(e)}")
-                        st.stop()
-
-            # Show tables if they exist in session state
-            if 'tables' in st.session_state and len(st.session_state.tables) > 0:
-                # Table selection
-                selected_table = st.selectbox(
-                    "Select table to view",
-                    options=[f"Table {i+1}" for i in range(len(st.session_state.tables))],
-                    index=st.session_state.get('selected_table', 0),
-                    key='table_selector'
-                )
-                table_idx = int(selected_table.split(" ")[1]) - 1
-                st.session_state.selected_table = table_idx
-                
-                # Display table
-                st.dataframe(
-                    st.session_state.tables[table_idx].df,
-                    height=400,
-                    use_container_width=True
-                )
-
-                # Export options
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    csv = st.session_state.tables[table_idx].df.to_csv(index=False)
-                    st.download_button(
-                        "💾 Download Current CSV",
-                        data=csv,
-                        file_name=f"table_{table_idx+1}.csv",
-                        mime="text/csv"
-                    )
-
-                with col2:
-                    # Excel export logic
-                    excel_name = os.path.splitext(input_pdf.name)[0] + ".xlsx"
-                    buffer = BytesIO()
-                    
-                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                        page_counter = {}
-                        
-                        for idx, table in enumerate(st.session_state.tables):
-                            page = table.page
-                            if page not in page_counter:
-                                page_counter[page] = 1
-                            else:
-                                page_counter[page] += 1
-                            
-                            sheet_name = f"table_{page}.{page_counter[page]}"
-                            table.df.to_excel(
-                                writer,
-                                sheet_name=sheet_name[:31],  # Excel sheet name limit
-                                index=False
-                            )
-                    
-                    buffer.seek(0)
-                    st.download_button(
-                        "📊 Download All Tables (Excel)",
-                        data=buffer,
-                        file_name=excel_name,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        help="All tables in single Excel file with multiple sheets"
-                    )
-
-                with col3:
-                    if st.button("🔄 Process New PDF"):
-                        st.session_state.clear()
-                        st.rerun()
-
+            tables = cam.read_pdf(
+                BytesIO(pdf_bytes), pages=','.join(selected_pages), flavor=flavor
+            )
         except Exception as e:
-            st.error(f"❌ PDF processing error: {str(e)}")
+            logger.error(f"Extraction failed: {e}")
+            st.error("Extraction failed. Try a different method or page selection.")
             st.stop()
-else:
-    st.info("👆 Upload a PDF file to get started")
+    if not tables:
+        st.warning("No tables found. You may try OCR fallback or switch detection mode.")
+        # OCR fallback button placeholder
+    else:
+        st.success(f"Found {len(tables)} tables.")
+        # Clean tables
+        for t in tables:
+            t.df = clean_table(t.df)
+        st.session_state.tables = tables
+        st.experimental_rerun()
 
-# --------------------------
-# Footer & Cleanup
-# --------------------------
+# Display & export
+if 'tables' in st.session_state and st.session_state.tables:
+    tables = st.session_state.tables
+    # Select one to view
+    options = [f"Table {i+1} (Pg {t.page})" for i, t in enumerate(tables)]
+    sel = st.selectbox("Select table to view", options)
+    idx = options.index(sel)
+    df = tables[idx].df
+    st.dataframe(df, height=300)
+
+    # Download CSV of viewed table
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        "💾 Download Table as CSV", data=csv,
+        file_name=f"table_{idx+1}.csv", mime="text/csv"
+    )
+
+    # Multi-export: select multiple tables
+    multi = st.multiselect(
+        "Select tables to download (Excel)", options, default=[options[idx]]
+    )
+    sel_idxs = [options.index(m) for m in multi]
+    if multi:
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            for i in sel_idxs:
+                sheet = f"table_{tables[i].page}.{i+1}"[:31]
+                tables[i].df.to_excel(writer, sheet_name=sheet, index=False)
+        buffer.seek(0)
+        st.download_button(
+            "📊 Download Selected Tables (Excel)", data=buffer,
+            file_name=os.path.splitext(input_pdf.name)[0] + ".xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    # Reset
+    if st.button("🔄 New PDF"):  # clear state
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.experimental_rerun()
+
+# Footer
 st.markdown("---")
-st.markdown("*Powered by Camelot, PyPDF2, and Streamlit*")
+st.markdown("*Powered by Camelot, PyPDF2 & Streamlit*")
