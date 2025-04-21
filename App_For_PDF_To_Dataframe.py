@@ -135,7 +135,7 @@ def show_pdf_preview(uploaded_file):
 # --------------------------
 handle_ghostscript_dependencies()
 
-st.title("📋 PDF Table Genius")
+st.title("📋 PDF Table Extraction")
 st.subheader("Smart Table Extraction with Multi-Page & Excel Export")
 
 with st.expander("ℹ️ How to use"):
