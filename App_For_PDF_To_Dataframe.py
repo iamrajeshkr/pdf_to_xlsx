@@ -822,12 +822,11 @@ def render_results_page():
                         st.markdown('</div>', unsafe_allow_html=True)
         
         # Display the selected table
-        # Display the selected table
         st.markdown("### Table Details:")
-
+        
         selected_idx = st.session_state.selected_table
         selected_table = st.session_state.tables[selected_idx]
-
+        
         # Display table metadata
         col1, col2 = st.columns(2)
         with col1:
@@ -861,4 +860,374 @@ def render_results_page():
             height=400
         )
 
+    with tab2:
+        st.subheader("Export Options")
+        
+        # Add export format selection
+        export_format = st.radio(
+            "Export Format",
+            ["Excel", "CSV", "JSON", "HTML"],
+            horizontal=True
+        )
+        
+        # Configuration options based on format
+        if export_format == "Excel":
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                export_all = st.checkbox("Export all tables to a single file", value=True)
+                sheet_naming = st.selectbox(
+                    "Sheet naming convention",
+                    ["Table_1, Table_2, ...", "Page_TableNum", "Custom prefix"]
+                )
+            
+            with col2:
+                if sheet_naming == "Custom prefix":
+                    prefix = st.text_input("Sheet name prefix", value="Table_")
+                
+                include_metadata = st.checkbox("Include metadata sheet", value=True)
+        
+        elif export_format == "CSV":
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                delimiter = st.selectbox("Delimiter", [",", ";", "Tab", "|", "Custom"])
+                if delimiter == "Custom":
+                    custom_delimiter = st.text_input("Custom delimiter", value="")
+            
+            with col2:
+                encoding = st.selectbox("Encoding", ["UTF-8", "UTF-16", "ASCII", "ISO-8859-1"])
+                include_header = st.checkbox("Include header row", value=True)
+        
+        elif export_format == "JSON":
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                orient = st.selectbox(
+                    "JSON structure",
+                    ["records", "columns", "index", "split", "table"],
+                    format_func=lambda x: {
+                        "records": "Records (list of objects)",
+                        "columns": "Columns (column-oriented)",
+                        "index": "Index (index-oriented)",
+                        "split": "Split (keys/values/index)",
+                        "table": "Table (including metadata)"
+                    }.get(x, x)
+                )
+            
+            with col2:
+                indent = st.slider("Indentation", min_value=0, max_value=4, value=2)
+                date_format = st.selectbox("Date format", ["iso", "epoch"])
+        
+        elif export_format == "HTML":
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                table_style = st.selectbox(
+                    "Table style",
+                    ["basic", "bootstrap", "bootstrap4", "material", "custom"]
+                )
+                if table_style == "custom":
+                    custom_css = st.text_area("Custom CSS", value="table { border-collapse: collapse; }\nth, td { padding: 8px; }")
+            
+            with col2:
+                include_index = st.checkbox("Include row indices", value=False)
+                responsive = st.checkbox("Make table responsive", value=True)
+        
+        # Export button row
+        export_col1, export_col2 = st.columns([1, 3])
+        
+        with export_col1:
+            export_clicked = st.button(
+                f"📥 Export as {export_format}",
+                key="export_button"
+            )
+        
+        if export_clicked:
+            try:
+                with st.spinner(f"Preparing {export_format} export..."):
+                    if export_format == "Excel":
+                        # Excel export logic
+                        buffer = BytesIO()
+                        
+                        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                            if export_all:
+                                # Export all tables
+                                for i, table in enumerate(st.session_state.tables):
+                                    if sheet_naming == "Table_1, Table_2, ...":
+                                        sheet_name = f"Table_{i+1}"
+                                    elif sheet_naming == "Page_TableNum":
+                                        sheet_name = f"Page_{table.page}_Table_{i+1}"
+                                    else:  # Custom prefix
+                                        sheet_name = f"{prefix}{i+1}"
+                                        
+                                    table.df.to_excel(
+                                        writer,
+                                        sheet_name=sheet_name[:31],  # Excel sheet name limit
+                                        index=False
+                                    )
+                                
+                                # Add metadata sheet if requested
+                                if include_metadata:
+                                    metadata = []
+                                    for i, table in enumerate(st.session_state.tables):
+                                        metadata.append({
+                                            "Table": i+1,
+                                            "Page": table.page,
+                                            "Rows": table.df.shape[0],
+                                            "Columns": table.df.shape[1],
+                                            "Extraction Method": table.flavor
+                                        })
+                                    
+                                    pd.DataFrame(metadata).to_excel(
+                                        writer,
+                                        sheet_name="Metadata",
+                                        index=False
+                                    )
+                            else:
+                                # Export only selected table
+                                selected_table = st.session_state.tables[st.session_state.selected_table]
+                                selected_table.df.to_excel(
+                                    writer,
+                                    sheet_name="Table",
+                                    index=False
+                                )
+                        
+                        buffer.seek(0)
+                        
+                        file_name = f"tables_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                        st.download_button(
+                            "Download Excel File",
+                            data=buffer,
+                            file_name=file_name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                        
+                        show_toast("Excel file ready for download!", "success")
+                    
+                    elif export_format == "CSV":
+                        # CSV export logic
+                        selected_table = st.session_state.tables[st.session_state.selected_table]
+                        
+                        # Set delimiter
+                        if delimiter == "Tab":
+                            delim = "\t"
+                        elif delimiter == "Custom":
+                            delim = custom_delimiter
+                        else:
+                            delim = delimiter
+                        
+                        # Create CSV
+                        csv_data = selected_table.df.to_csv(
+                            index=False,
+                            sep=delim,
+                            encoding=encoding.lower(),
+                            header=include_header
+                        )
+                        
+                        file_name = f"table_{st.session_state.selected_table+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                        st.download_button(
+                            "Download CSV File",
+                            data=csv_data,
+                            file_name=file_name,
+                            mime="text/csv"
+                        )
+                        
+                        show_toast("CSV file ready for download!", "success")
+                    
+                    elif export_format == "JSON":
+                        # JSON export logic
+                        selected_table = st.session_state.tables[st.session_state.selected_table]
+                        
+                        # Convert to JSON
+                        json_data = selected_table.df.to_json(
+                            orient=orient,
+                            date_format=date_format,
+                            indent=indent if indent > 0 else None
+                        )
+                        
+                        file_name = f"table_{st.session_state.selected_table+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                        st.download_button(
+                            "Download JSON File",
+                            data=json_data,
+                            file_name=file_name,
+                            mime="application/json"
+                        )
+                        
+                        show_toast("JSON file ready for download!", "success")
+                    
+                    elif export_format == "HTML":
+                        # HTML export logic
+                        selected_table = st.session_state.tables[st.session_state.selected_table]
+                        
+                        # Set CSS for table style
+                        css = ""
+                        if table_style == "basic":
+                            css = """
+                            <style>
+                                table { border-collapse: collapse; width: 100%; }
+                                th, td { padding: 8px; border: 1px solid #ddd; }
+                                th { background-color: #f2f2f2; text-align: left; }
+                            </style>
+                            """
+                        elif table_style == "bootstrap":
+                            css = """
+                            <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+                            <style>
+                                table { width: 100%; }
+                            </style>
+                            """
+                        elif table_style == "custom":
+                            css = f"<style>{custom_css}</style>"
+                        
+                        # Create responsive wrapper if needed
+                        responsive_wrapper = """
+                        <div style="overflow-x: auto;">
+                        """
+                        
+                        # Convert to HTML
+                        html_table = selected_table.df.to_html(index=include_index, classes="table table-striped" if "bootstrap" in table_style else "")
+                        
+                        # Combine everything
+                        complete_html = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <title>Extracted Table</title>
+                            {css}
+                        </head>
+                        <body>
+                            {"<div style='overflow-x: auto;'>" if responsive else ""}
+                            {html_table}
+                            {"</div>" if responsive else ""}
+                        </body>
+                        </html>
+                        """
+                        
+                        file_name = f"table_{st.session_state.selected_table+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+                        st.download_button(
+                            "Download HTML File",
+                            data=complete_html,
+                            file_name=file_name,
+                            mime="text/html"
+                        )
+                        
+                        show_toast("HTML file ready for download!", "success")
+            
+            except Exception as e:
+                st.error(f"Export failed: {str(e)}")
+
+    with tab3:
+        st.subheader("Data Visualization")
+        
+        # Get the selected table
+        selected_table = st.session_state.tables[st.session_state.selected_table]
+        df = selected_table.df.copy()
+        
+        # Check if table has enough data for visualization
+        if df.shape[0] < 2 or df.shape[1] < 2:
+            st.warning("This table doesn't have enough data for meaningful visualization.")
+        else:
+            # Attempt to convert numeric columns for better visualization
+            for col in df.columns:
+                try:
+                    df[col] = pd.to_numeric(df[col])
+                except:
+                    pass
+            
+            # Select visualization type
+            viz_type = st.selectbox(
+                "Visualization Type",
+                ["Bar Chart", "Line Chart", "Scatter Plot", "Heatmap", "Pie Chart"],
+                key="viz_type"
+            )
+            
+            # Configure visualization based on type
+            try:
+                if viz_type == "Bar Chart":
+                    x_col = st.selectbox("X-axis (categories)", options=df.columns, key="bar_x")
+                    y_col = st.selectbox("Y-axis (values)", options=df.columns, key="bar_y")
+                    
+                    # Create a simple bar chart
+                    fig = px.bar(df, x=x_col, y=y_col, title=f"Bar Chart: {x_col} vs {y_col}")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                elif viz_type == "Line Chart":
+                    x_col = st.selectbox("X-axis", options=df.columns, key="line_x")
+                    y_cols = st.multiselect("Y-axis (multiple allowed)", options=df.columns, key="line_y")
+                    
+                    if y_cols:
+                        fig = px.line(df, x=x_col, y=y_cols, title=f"Line Chart: {x_col} vs {', '.join(y_cols)}")
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("Please select at least one Y-axis column")
+                
+                elif viz_type == "Scatter Plot":
+                    x_col = st.selectbox("X-axis", options=df.columns, key="scatter_x")
+                    y_col = st.selectbox("Y-axis", options=df.columns, key="scatter_y")
+                    color_col = st.selectbox("Color (optional)", options=["None"] + list(df.columns), key="scatter_color")
+                    
+                    if color_col == "None":
+                        fig = px.scatter(df, x=x_col, y=y_col, title=f"Scatter Plot: {x_col} vs {y_col}")
+                    else:
+                        fig = px.scatter(df, x=x_col, y=y_col, color=color_col, title=f"Scatter Plot: {x_col} vs {y_col}, colored by {color_col}")
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                elif viz_type == "Heatmap":
+                    # For heatmap, try to convert all columns to numeric
+                    numeric_df = df.apply(pd.to_numeric, errors='coerce')
+                    
+                    if numeric_df.isnull().values.any():
+                        st.warning("Some values couldn't be converted to numbers. Heatmap may not be accurate.")
+                    
+                    # Create correlation heatmap
+                    fig = px.imshow(
+                        numeric_df.corr(),
+                        title="Correlation Heatmap",
+                        color_continuous_scale="RdBu_r",
+                        labels=dict(x="Features", y="Features", color="Correlation")
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                elif viz_type == "Pie Chart":
+                    label_col = st.selectbox("Labels", options=df.columns, key="pie_label")
+                    value_col = st.selectbox("Values", options=df.columns, key="pie_value")
+                    
+                    fig = px.pie(df, names=label_col, values=value_col, title=f"Pie Chart: {value_col} by {label_col}")
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+            except Exception as e:
+                st.error(f"Visualization error: {str(e)}")
+                st.info("Try selecting different columns or a different chart type.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --------------------------
+# Main Application Flow
+# --------------------------
+def main():
+    # Check dependencies first
+    handle_ghostscript_dependencies()
     
+    # Render the sidebar 
+    render_sidebar()
+    
+    # Render the appropriate page based on session state
+    if st.session_state.page == 'upload':
+        render_upload_page()
+    elif st.session_state.page == 'extract':
+        render_extract_page()
+    elif st.session_state.page == 'results':
+        render_results_page()
+    
+    # Add a page navigation component at the bottom
+    render_page_navigation()
+
+# --------------------------
+# Main App Execution
+# --------------------------
+if __name__ == "__main__":
+    main()
