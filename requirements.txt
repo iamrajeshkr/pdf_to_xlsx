@@ -52,3 +52,5 @@ urllib3==2.4.0
 watchdog==6.0.0
 pdf2image==1.16.3
 pillow>=9.0.0
+ghostscript
+plotly
