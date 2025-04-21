@@ -822,8 +822,43 @@ def render_results_page():
                         st.markdown('</div>', unsafe_allow_html=True)
         
         # Display the selected table
+        # Display the selected table
         st.markdown("### Table Details:")
-        
+
         selected_idx = st.session_state.selected_table
         selected_table = st.session_state.tables[selected_idx]
+
+        # Display table metadata
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**Page:** {selected_table.page}")
+            st.markdown(f"**Table Size:** {selected_table.df.shape[0]} rows × {selected_table.df.shape[1]} columns")
+            
+        with col2:
+            flavor = "Lattice" if selected_table.flavor == "lattice" else "Stream"
+            st.markdown(f"**Extraction Method:** {flavor}")
+            accuracy = selected_table.accuracy if hasattr(selected_table, 'accuracy') else "N/A"
+            st.markdown(f"**Confidence Score:** {accuracy}")
+
+        # Table editing capabilities
+        with st.expander("✏️ Edit Table Data", expanded=False):
+            edited_df = st.data_editor(
+                selected_table.df,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            if st.button("Save Changes"):
+                # Update the table with edited data
+                st.session_state.tables[selected_idx].df = edited_df
+                st.success("✅ Table data updated successfully!")
+
+        # Show the table
+        st.dataframe(
+            selected_table.df,
+            use_container_width=True,
+            height=400
+        )
+
     
